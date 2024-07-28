@@ -19,6 +19,9 @@ change_settings({"IMAGEMAGICK_BINARY": image_magick_path})
 def list_videos(directory):
     return [f for f in os.listdir(directory) if f.endswith('.mp4')]
 
+def list_audio(directory):
+    return [f for f in os.listdir(directory) if f.endswith('.mp3') or f.endswith('.wav')]
+
 def extract_audio(video_path, audio_path):
     try:
         video = mp.VideoFileClip(video_path)
@@ -51,7 +54,7 @@ def generate_subtitles(audio_path, subtitle_path):
         print(f"Error generating subtitles: {e}")
         sys.exit(1)
 
-def add_subtitles(video_path, subtitle_path, output_path, font="Arial"):
+def add_subtitles(video_path, subtitle_path, output_path, bg_audio_path=None, font="Arial-Bold"):
     try:
         video = mp.VideoFileClip(video_path)
         print(f"Original video size: {video.size}")
@@ -70,10 +73,25 @@ def add_subtitles(video_path, subtitle_path, output_path, font="Arial"):
                 start = float(lines[i].split()[0])
                 end = float(lines[i].split()[2])
                 text = lines[i+1].strip()
-                subs.append(mp.TextClip(text, fontsize=60, color='white', stroke_color='black', stroke_width=3, font=font).set_position(('center', 'center')).set_duration(end - start).set_start(start))
+
+                # Create background text clip (black text, larger fontsize)
+                bg_text_clip = mp.TextClip(text, fontsize=120, color='black',stroke_color='black',stroke_width=14, font=font)
+                bg_text_clip = bg_text_clip.set_position(('center', 'center')).set_duration(end - start).set_start(start)
+
+                # Create foreground text clip (white text)
+                fg_text_clip = mp.TextClip(text, fontsize=120, color='white', font=font)
+                fg_text_clip = fg_text_clip.set_position(('center', 'center')).set_duration(end - start).set_start(start)
+
+                subs.extend([bg_text_clip, fg_text_clip])
 
         final_video = mp.CompositeVideoClip([resized_video] + subs)
         final_video = final_video.set_audio(audio)
+
+        if bg_audio_path:
+            print(f"Adding background audio from {bg_audio_path}")
+            bg_audio = mp.AudioFileClip(bg_audio_path).volumex(0.1)  # Adjust volume if needed
+            final_audio = mp.CompositeAudioClip([audio, bg_audio.set_duration(video.duration)])
+            final_video = final_video.set_audio(final_audio)
 
         print(f"Writing video to {output_path}")
         final_video.write_videofile(output_path, codec='libx264', audio_codec='aac')
@@ -85,6 +103,7 @@ def add_subtitles(video_path, subtitle_path, output_path, font="Arial"):
 def main():
     input_directory = "InputVideo"
     output_directory = "Output"
+    bg_audio_directory = "BackgroundAudio"
 
     videos = list_videos(input_directory)
     if not videos:
@@ -115,7 +134,27 @@ def main():
     
     extract_audio(video_path, audio_path)
     generate_subtitles(audio_path, subtitle_path)
-    add_subtitles(video_path, subtitle_path, output_path, font="Arial")  # Change "Arial" to your desired font
+
+    add_bg_audio = input("Do you want to add background audio? (yes/no): ").strip().lower()
+    bg_audio_path = None
+    if add_bg_audio == "yes":
+        bg_audios = list_audio(bg_audio_directory)
+        if not bg_audios:
+            print("No audio files found in the BackgroundAudio directory.")
+            return
+        
+        print("Choose a background audio to add:")
+        for i, bg_audio in enumerate(bg_audios):
+            print(f"[{i}] {bg_audio}")
+
+        bg_choice = int(input("Enter the index of the background audio: "))
+        if bg_choice < 0 or bg_choice >= len(bg_audios):
+            print("Invalid choice.")
+            return
+        
+        bg_audio_path = os.path.join(bg_audio_directory, bg_audios[bg_choice])
+
+    add_subtitles(video_path, subtitle_path, output_path, bg_audio_path, font="Bahnschrift")  # Change "Arial-Bold" to your desired font
     
     print("Cleaning up temporary files...")
     try:
